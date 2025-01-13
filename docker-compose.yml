@@ -1,0 +1,99 @@
+services:
+  airflow-container:
+    image: apache/airflow:slim-2.10.3rc2-python3.10
+    depends_on: 
+      - zookeeper
+      - kafka
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./requirements.txt:/opt/airflow/requirements.txt
+      - ./.env:/opt/airflow/.env
+    ports:
+      - 9999:8080
+    networks:
+      - realtime-voting-network
+    command: bash -c '(pip install -r /opt/airflow/requirements.txt && airflow db init && airflow users create --username ${AIRFLOW_USERNAME} --password ${AIRFLOW_PASSWORD} --firstname ${AIRFLOW_FIRSTNAME} --lastname ${AIRFLOW_LASTNAME} --role Admin --email ${AIRFLOW_EMAIL}); airflow webserver & airflow scheduler'
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    networks: 
+      - realtime-voting-network
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeperData:/var/lib/zookeeper/data
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - 9092:9092
+    networks: 
+      - realtime-voting-network
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafkaData:/var/lib/kafka/data
+  control-center:
+    image: confluentinc/cp-enterprise-control-center:6.0.1
+    depends_on: 
+      - kafka
+      # - schema-registry
+    ports:
+      - "9021:9021"
+    networks: 
+      - realtime-voting-network
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: "kafka:29092"
+      CONFLUENT_METRICS_TOPIC_REPLICATION: 1
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_COMMAND_TOPIC_REPLICATION: 1
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_REPLICATION: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_REPLICATION: 1
+      # CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1 # Remove or correct this variable
+      CONTROL_CENTER_STREAMS_NUM_STREAM_THREADS: 1
+      CONTROL_CENTER_STREAMS_CACHE_MAX_BYTES_BUFFERING: 104857600
+
+  spark-master:
+    image: bitnami/spark:latest
+    command: bin/spark-class org.apache.spark.deploy.master.Master
+    ports:
+      - "9090:8080"
+      - "7077:7077"
+    networks:
+      - realtime-voting-network
+      
+  spark-worker:
+    image: bitnami/spark:latest
+    command: bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_MODE: worker
+      SPARK_WORKER_CORES: 8
+      SPARK_WORKER_MEMORY: 4g
+      SPARK_MASTER_URL: spark://spark-master:7077
+    networks:
+      - realtime-voting-network
+volumes:
+  dags:
+  kafkaData: 
+  zookeeperData: 
+
+networks:
+  realtime-voting-network:
+    driver: bridge
+
+  
+
+    
+
+
+

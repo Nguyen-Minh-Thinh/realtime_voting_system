@@ -1,0 +1,3 @@
+venv
+.env
+checkpoint_dir_kafka
