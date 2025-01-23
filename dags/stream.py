@@ -2,13 +2,17 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from datetime import datetime, timedelta
+from dotenv import dotenv_values
+import pathlib
 
-
+script_path = pathlib.Path(__file__).parent.resolve()
+config = dotenv_values(f'{script_path.parent}/.env')
 
 last_2_days = datetime.now() - timedelta(days=2)    # Get the last date
 dag = DAG(
     dag_id = 'Stream',
     start_date=last_2_days,
+    schedule_interval='@daily',
     catchup=True  # Start executing from start_date to now
 )
 
@@ -17,7 +21,7 @@ def to_kafka():
     import requests 
     import datetime 
     producer = KafkaProducer(
-        bootstrap_servers = 'kafka:29092',
+        bootstrap_servers = config['KAFKA_BOOTSTRAP_SERVERS'],
         value_serializer = lambda v: v.encode('utf-8')
     )
 
@@ -44,6 +48,11 @@ create_table = BashOperator(
     bash_command='python /opt/airflow/dags/tasks/create_table.py'
 )
 
+insert_candidates = BashOperator(
+    task_id = 'insert_candidates',
+    bash_command = 'python /opt/airflow/dags/tasks/insert_candidates.py'
+)
+
 stream_to_kafka = PythonOperator(
     task_id = 'stream_to_kafka',
     python_callable = to_kafka,
@@ -58,5 +67,5 @@ end_task = BashOperator(
 )
 
 
-start_task >> create_table >> stream_to_kafka >> end_task 
+start_task >> create_table >> insert_candidates >> stream_to_kafka >> end_task 
 

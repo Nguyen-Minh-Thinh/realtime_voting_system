@@ -1,152 +1,164 @@
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import udf, StringType, col, from_json, lit
-from pyspark.sql.types import StructField, StructType, StringType, IntegerType
-import datetime
-import json
-import mysql.connector
-import requests 
-import random
+from pyspark.sql.functions import col, from_json, lit, concat, explode, concat_ws
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, ArrayType
 from dotenv import dotenv_values
+from dags.tasks.create_table import get_clickhouse_client
 import pathlib
+import random
+import datetime
+# script_path = pathlib.Path(__file__).parent.resolve()
+# config = dotenv_values(f'{script_path}/.env')
 
-script = pathlib.Path(__file__).parent.resolve()
-config = dotenv_values(f'{script}/.env')
-random.seed(2025)
-# Connect to MySQL
-def mysql_connection():
-    try:
-        conn = mysql.connector.connect(
-            host='localhost',
-            port='3306',
-            user=config['MYSQL_USER'],
-            password=config['MYSQL_PASSWORD'],
-            database='voting_system')
-        
-        if conn.is_connected():
-            print('Connected to MySQL database')
-    except Exception as e:
-        print('Error when connecting to MySQL', e)
-    else:
-        return conn
+config = {
+    "CLICKHOUSE_USERNAME": "default",
+    "CLICKHOUSE_PASSWORD": "",
+    "CLICKHOUSE_DATABASE": "voting_system",
+    "CLICKHOUSE_HOST": "localhost",
+    "CLICKHOUSE_PORT": 8123
+}
+def get_candidates():
+    client = get_clickhouse_client(config)
+    results = client.query('select id from voting_system.candidates')
+    candidates_lst = []
+    for t in results.result_rows:
+        candidates_lst.append(t[0])
+    return candidates_lst
 
-# Create table in MySQL
-def insert_into_candidates(conn):
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM candidates')
-    rows = cursor.fetchall()
-    if len(rows) < 3:
-        count = len(rows)
-        while count < 3:
-            url = "https://randomuser.me/api"
-            response = requests.get(url + "?nat=us")
-            data = json.loads(response.text)
-            data = data['results'][0]
-            
-            id = data['login']['uuid']
-            first_name = data['name']['first']
-            last_name = data['name']['last']
-            full_name = first_name + ' ' + last_name 
-            street = " ".join(map(str, data['location']['street'].values()))
-            city = data['location']['city']
-            state = data['location']['state']
-            country = data['location']['country']
-            postcode = data['location']['postcode']
-            email = data['email']
-            date_of_birth = str(datetime.datetime.strptime(data['dob']['date'], "%Y-%m-%dT%H:%M:%S.%fZ").date())    
-            age = data['dob']['age']
-            if age < 21:
-                continue
-            phone_number = data['phone']
-            picture_url = data['picture']['large']
-            national_id = data['nat']
+# Hàm biến đổi dữ liệu từ Kafka
+def transform_data(df):
+    json_schema = StructType([
+        StructField('results', ArrayType(
+            StructType([
+                StructField("gender", StringType(), True), #
+                StructField("name", StructType([
+                    StructField("title", StringType(), True),
+                    StructField("first", StringType(), True),
+                    StructField("last", StringType(), True)
+                ]), True),                                  #
+                StructField("location", StructType([
+                    StructField("street", StructType([
+                        StructField("number", IntegerType(), True),
+                        StructField("name", StringType(), True)
+                    ]), True),                              #
+                    StructField("city", StringType(), True),
+                    StructField("state", StringType(), True),
+                    StructField("country", StringType(), True),
+                    StructField("postcode", IntegerType(), True),
+                    StructField("coordinates", StructType([
+                        StructField("latitude", StringType(), True),  # Dữ liệu latitude là chuỗi
+                        StructField("longitude", StringType(), True)  # Dữ liệu longitude là chuỗi
+                    ]), True),
+                    StructField("timezone", StructType([
+                        StructField("offset", StringType(), True),
+                        StructField("description", StringType(), True)
+                    ]), True)
+                ]), True),                                  #
+                StructField("email", StringType(), True),   #
+                StructField("login", StructType([
+                    StructField("uuid", StringType(), True),
+                    StructField("username", StringType(), True),
+                    StructField("password", StringType(), True),
+                    StructField("salt", StringType(), True),
+                    StructField("md5", StringType(), True),
+                    StructField("sha1", StringType(), True),
+                    StructField("sha256", StringType(), True)
+                ]), True),                                   #
+                StructField("dob", StructType([
+                    StructField("date", StringType(), True),  # Có thể thay đổi thành DateType nếu cần
+                    StructField("age", IntegerType(), True)
+                ]), True),                                  #
+                StructField("registered", StructType([
+                    StructField("date", StringType(), True),  # Có thể thay đổi thành DateType nếu cần
+                    StructField("age", IntegerType(), True)
+                ]), True),                                  #
+                StructField("phone", StringType(), True),
+                StructField("cell", StringType(), True),
+                StructField("id", StructType([
+                    StructField("name", StringType(), True),
+                    StructField("value", StringType(), True)
+                ]), True),                                  #
+                StructField("picture", StructType([
+                    StructField("large", StringType(), True),
+                    StructField("medium", StringType(), True),
+                    StructField("thumbnail", StringType(), True)
+                ]), True),                          #
+                StructField("nat", StringType(), True)
+            ])                            
+        ), True),
+        StructField("info", 
+            StructType([
+                StructField("seed", StringType(), True),
+                StructField("results", IntegerType(), True),
+                StructField("page", IntegerType(), True),
+                StructField("version", StringType(), True)
+            ]), True)
+    ])
+    df = df.withColumn("value", df.value.cast("String")).select("value")
+    df = df.withColumn("value", from_json(col('value'), json_schema)).select('value.results')
+    df = df.select(explode(df.results).alias('results'))
+    df_transformed = df.select(
+            col("results.login.uuid").alias("id"),
+            col("results.name.first").alias("first_name"),
+            col("results.name.last").alias("last_name"),
+            concat(col("results.name.first"), lit(" "), col("results.name.last")).alias("full_name"),
+            col("results.email").alias("email"),
+            col("results.dob.date").alias("date_of_birth"),
+            col("results.dob.age").alias("age"),
+            col("results.phone").alias("phone_number"),
+            concat_ws(" ", col("results.location.street.name")).alias("street"),    # Allow to add separator when concatenate strings
+            col("results.location.city").alias("city"),
+            col("results.location.state").alias("state"),
+            col("results.location.country").alias("country")
+        )
+    
+    return df_transformed
 
-            query = '''
-                    INSERT INTO candidates
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s )
-                    '''
-            cursor.execute(query, (id, first_name, last_name, full_name, street, city, state, country, postcode, email, date_of_birth, age, phone_number, picture_url, national_id))
-            conn.commit()
-            count += 1
-    cursor.close()
+def data_output(df, batch_id):
+    driver = 'ru.yandex.clickhouse.ClickHouseDriver'
+    username = config["CLICKHOUSE_USERNAME"]
+    password = config["CLICKHOUSE_PASSWORD"]
+    host = config["CLICKHOUSE_HOST"]
+    port = config["CLICKHOUSE_PORT"]
+    database = 'audio_device_data_pipeline'
+    url = f'jdbc:clickhouse://{host}:{port}/{database}'
+    (df
+    .write
+    .mode('append')
+    .format('jdbc')
+    .option('driver', driver)
+    .option('url', url)
+    .option('user', username)
+    .option('password', password)
+    .option('dbtable', 'voting_system.voters')
+    .save()
+    )
+    candidates_lst = get_candidates()
+    df_votes = df.select(col('id').alias('voter_id'), lit(random.choice(candidates_lst)).alias('candidate_id'), lit(datetime.datetime.now().replace(microsecond=0)).alias('voting_time'))
 
-def get_data_from_candidates(conn):
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM candidates')
-    rows = cursor.fetchall()
-    cursor.close()
-    return rows
+    (df_votes
+    .write
+    .mode('append')
+    .format('jdbc')
+    .option('driver', driver)
+    .option('url', url)
+    .option('user', username)
+    .option('password', password)
+    .option('dbtable', 'voting_system.votes')
+    .save())
 
-# Initiate SparkSession
-spark = (
-    SparkSession
-    .builder
-    .appName("Test1")
-    .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,mysql:mysql-connector-java:8.0.33")
-    .getOrCreate()
+
+    print(f"Wrote to ClickHouse successfully!, Batch: {batch_id}")
+
+spark = (SparkSession
+        .builder 
+        .appName('Test')
+        .config('spark.jars.packages', 'org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,ru.yandex.clickhouse:clickhouse-jdbc:0.3.2')
+        .getOrCreate()
 )
-
-# Read data from kafka topic, with stream
-kafka_df = (
-    spark
-    .readStream
-    .format("kafka")
-    .option("kafka.bootstrap.servers", "localhost:9092")
-    .option("subscribe", "voting_sys_voters")
-    .option("startingOffsets", "earliest")
-    .load())
-
-kafka_df_value = kafka_df.withColumn("value", kafka_df.value.cast("String")).select("value")
-# Select some specific fields
-def select_fields(string_val):
-    dict_val = dict()
-    data = json.loads(string_val)
-    data = data['results'][0]
-    id = data['login']['uuid']
-    dict_val['id'] = id
-
-    first_name = data['name']['first']
-    dict_val['first_name'] = first_name
-
-    last_name = data['name']['last']
-    dict_val['last_name'] = last_name
-
-    full_name = first_name + ' ' + last_name 
-    dict_val['full_name'] = full_name
-
-    email = data['email']
-    dict_val['email'] = email
-
-    date_of_birth = str(datetime.datetime.strptime(data['dob']['date'], "%Y-%m-%dT%H:%M:%S.%fZ").date())
-    dict_val['date_of_birth'] = date_of_birth
-
-    age = data['dob']['age']
-    dict_val['age'] = age
-
-    phone_number = data['phone']
-    dict_val['phone_number'] = phone_number
-
-    street = " ".join(map(str, data['location']['street'].values()))
-    dict_val['street'] = street
-    
-    city = data['location']['city']
-    dict_val['city'] = city
-
-    state = data['location']['state']
-    dict_val['state'] = state
-
-    country = data['location']['country']
-    dict_val['country'] = country
-    
-    return json.dumps(dict_val)
-
-# Create UDF(User defined function)
-select_fields_udf = udf(lambda string_val: select_fields(string_val), StringType())
-
-df_selected_fields = kafka_df_value.select(select_fields_udf(col('value')).alias('value'))
 
 # Schema of voters
 voters_schema = StructType(
-    [
+    [   
         StructField("id", StringType(), False),
         StructField("first_name", StringType(), False),
         StructField("last_name", StringType(), False),
@@ -162,57 +174,25 @@ voters_schema = StructType(
     ]
 )
 
-flattened_voters_df = df_selected_fields.select(from_json(df_selected_fields.value, voters_schema).alias('value'))
-df_voters = flattened_voters_df.select("value.*")
-df_voters = df_voters.distinct()
+# Read data from kafka topic, with stream
+kafka_df = (
+    spark
+    .readStream
+    .format("kafka")
+    .option("kafka.bootstrap.servers", "localhost:9092")
+    .option("subscribe", "voting_sys_voters")
+    .option("startingOffsets", "earliest")
+    .load())
 
+df_transformed = transform_data(kafka_df)
+df_transformed2 = df_transformed.filter(df_transformed.age > 18)
 
-def data_output(df, batch_id):
-    # print("Batch ID:", batch_id)
-    # print("Number of rows:",df.count())
-    # Write to MySQL
-    (df
-    .write
-    .mode('append')
-    .format('jdbc')
-    .option('driver', 'com.mysql.cj.jdbc.Driver')
-    .option('url', 'jdbc:mysql://localhost:3306/voting_system')
-    .option('dbtable', 'voters')
-    .option('user', 'root')
-    .option('password', '26122004')
-    .save()
-    )
-
-    votes_df = df.select(col('id').alias('voter_id')) \
-    .withColumn('candidate_id', lit(candidates_data[random.randint(0, 2)][0])) \
-    .withColumn('voting_time', lit(datetime.datetime.now().strftime('%Y:%m:%d %H:%M:%S')))
-    
-    (votes_df
-    .write
-    .mode('append')
-    .format('jdbc')
-    .option('driver', 'com.mysql.cj.jdbc.Driver')
-    .option('url', 'jdbc:mysql://localhost:3306/voting_system')
-    .option('dbtable', 'votes')
-    .option('user', 'root')
-    .option('password', '26122004')
-    .save()
-    )
-
-    print(f"Wrote to MySQL successfully!, Batch: {batch_id}")
-
-
-
-if __name__ == "__main__":
-    mysql_conn = mysql_connection()
-    insert_into_candidates(mysql_conn)
-    candidates_data = get_data_from_candidates(mysql_conn)
-    (
-        df_voters
-        .writeStream
-        .foreachBatch(data_output)
-        .trigger(processingTime='10 seconds')
-        .option('checkpointLocation', 'checkpoint_dir_kafka')
-        .start()
-        .awaitTermination()
-    )
+(
+    df_transformed2
+    .writeStream
+    .foreachBatch(data_output)
+    .trigger(processingTime='10 seconds')
+    .option('checkpointLocation', 'checkpoint_dir_kafka')
+    .start()
+    .awaitTermination()
+)
