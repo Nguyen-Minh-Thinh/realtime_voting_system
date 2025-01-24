@@ -62,31 +62,44 @@ services:
       CONTROL_CENTER_STREAMS_CACHE_MAX_BYTES_BUFFERING: 104857600
 
   spark-master:
-    image: bitnami/spark:latest
-    command: bin/spark-class org.apache.spark.deploy.master.Master
+    image: bitnami/spark:3.5.0
+    container_name: spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - USER=root
     ports:
-      - "9090:8080"
-      - "7077:7077"
-    networks:
+      - "9090:8080"  # Spark Web UI
+      - "7077:7077"  # Spark Master Port
+    volumes:
+      - ./spark.py:/opt/bitnami/spark/spark.py
+      - ./.env:/opt/bitnami/spark/.env
+      - ./checkpointLocation:/opt/bitnami/spark/checkpointLocation
+    networks: 
       - realtime-voting-network
-      
+
   spark-worker:
-    image: bitnami/spark:latest
-    command: bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    image: bitnami/spark:3.5.0
+    container_name: spark-worker
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=2g
+      - USER=root
     depends_on:
       - spark-master
-    environment:
-      SPARK_MODE: worker
-      SPARK_WORKER_CORES: 8
-      SPARK_WORKER_MEMORY: 4g
-      SPARK_MASTER_URL: spark://spark-master:7077
-    networks:
+    ports:
+      - "8081:8081"  # Spark Worker UI
+    volumes:
+      - ./spark.py:/opt/bitnami/spark/spark.py
+    networks: 
       - realtime-voting-network
 volumes:
   dags:
   kafkaData: 
   zookeeperData: 
-
+  checkpointLocation:
 networks:
   realtime-voting-network:
     driver: bridge

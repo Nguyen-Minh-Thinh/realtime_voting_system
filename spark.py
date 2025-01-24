@@ -1,23 +1,24 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, from_json, lit, concat, explode, concat_ws
 from pyspark.sql.types import StructType, StructField, StringType, IntegerType, ArrayType
+import clickhouse_connect
 from dotenv import dotenv_values
-from dags.tasks.create_table import get_clickhouse_client
 import pathlib
 import random
 import datetime
-# script_path = pathlib.Path(__file__).parent.resolve()
-# config = dotenv_values(f'{script_path}/.env')
+script_path = pathlib.Path(__file__).parent.resolve()
+config = dotenv_values(f'{script_path}/.env')
 
-config = {
-    "CLICKHOUSE_USERNAME": "default",
-    "CLICKHOUSE_PASSWORD": "",
-    "CLICKHOUSE_DATABASE": "voting_system",
-    "CLICKHOUSE_HOST": "localhost",
-    "CLICKHOUSE_PORT": 8123
-}
 def get_candidates():
-    client = get_clickhouse_client(config)
+    try:
+        client = clickhouse_connect.get_client(
+                        host=config['CLICKHOUSE_HOST'],
+                        port=int(config['CLICKHOUSE_PORT']),
+                        username=config['CLICKHOUSE_USERNAME'],
+                        password=config['CLICKHOUSE_PASSWORD']
+                        )
+    except Exception as e:
+        print(f"Failed to connect to ClickHouse: {e}")
     results = client.query('select id from voting_system.candidates')
     candidates_lst = []
     for t in results.result_rows:
@@ -119,7 +120,7 @@ def data_output(df, batch_id):
     password = config["CLICKHOUSE_PASSWORD"]
     host = config["CLICKHOUSE_HOST"]
     port = config["CLICKHOUSE_PORT"]
-    database = 'audio_device_data_pipeline'
+    database = 'voting_system'
     url = f'jdbc:clickhouse://{host}:{port}/{database}'
     (df
     .write
@@ -150,10 +151,11 @@ def data_output(df, batch_id):
     print(f"Wrote to ClickHouse successfully!, Batch: {batch_id}")
 
 spark = (SparkSession
-        .builder 
-        .appName('Test')
-        .config('spark.jars.packages', 'org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,ru.yandex.clickhouse:clickhouse-jdbc:0.3.2')
-        .getOrCreate()
+         .builder
+         .appName('Test')
+         .config('master', 'local[*]')
+         .config('spark.jars.packages', 'org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,ru.yandex.clickhouse:clickhouse-jdbc:0.3.2')
+         .getOrCreate()
 )
 
 # Schema of voters
@@ -179,7 +181,7 @@ kafka_df = (
     spark
     .readStream
     .format("kafka")
-    .option("kafka.bootstrap.servers", "localhost:9092")
+    .option("kafka.bootstrap.servers", "kafka:29092")
     .option("subscribe", "voting_sys_voters")
     .option("startingOffsets", "earliest")
     .load())
@@ -192,7 +194,7 @@ df_transformed2 = df_transformed.filter(df_transformed.age > 18)
     .writeStream
     .foreachBatch(data_output)
     .trigger(processingTime='10 seconds')
-    .option('checkpointLocation', 'checkpoint_dir_kafka')
+    .option('checkpointLocation', '/opt/bitnami/spark/checkpointLocation/checkpoint_dir_kafka')
     .start()
     .awaitTermination()
 )

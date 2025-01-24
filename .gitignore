@@ -1,7 +1,8 @@
 venv
 .env
-checkpoint_dir_kafka
+checkpointLocation
 .$workflow.drawio.bkp
 test.ipynb
 test.py
 workflow.drawio
+dashboard.pbix
