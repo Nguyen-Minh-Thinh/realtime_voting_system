@@ -154,6 +154,7 @@ spark = (SparkSession
          .builder
          .appName('Test')
          .config('master', 'local[*]')
+         .config('spark.ui.port', 4050)
          .config('spark.jars.packages', 'org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,ru.yandex.clickhouse:clickhouse-jdbc:0.3.2')
          .getOrCreate()
 )
@@ -194,7 +195,7 @@ df_transformed2 = df_transformed.filter(df_transformed.age > 18)
     .writeStream
     .foreachBatch(data_output)
     .trigger(processingTime='10 seconds')
-    .option('checkpointLocation', '/opt/bitnami/spark/checkpointLocation/checkpoint_dir_kafka')
+    .option('checkpointLocation', 'checkpointLocation/checkpoint_dir_kafka')
     .start()
     .awaitTermination()
 )
