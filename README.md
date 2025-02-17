@@ -10,6 +10,8 @@ The workflow is automated with Apache Airflow and deployed via Docker for scalab
 3. PySpark: Processes and batches data.
 4. ClickHouse: Stores and queries data.
 5. Power BI: Visualizes data insights.
+6. Apache Airflow: Workflow management
+7. Docker: Container platform
 
 ## Architecture
 ![Architecture](image/workflow.png)
