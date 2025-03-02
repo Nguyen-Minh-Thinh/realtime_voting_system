@@ -19,23 +19,45 @@ dag = DAG(
 def to_kafka():
     from kafka import KafkaProducer 
     import requests 
+    import concurrent.futures
     import datetime 
+    import time
     producer = KafkaProducer(
         bootstrap_servers = config['KAFKA_BOOTSTRAP_SERVERS'],
         value_serializer = lambda v: v.encode('utf-8')
     )
 
-    dt_end = datetime.datetime.now() + datetime.timedelta(seconds=60)   
-    
-    while True:
-        if datetime.datetime.now() > dt_end:
-            break
-        url = "https://randomuser.me/api"
-        response = requests.get(url + "?nat=us")    # About 90 requests per minute
-        response = response.text  # Return String type
+    dt_end = datetime.datetime.now() + datetime.timedelta(seconds=600)   
+    session = requests.Session()    # Giúp tái sử dụng kết nối TCP, giúp giảm độ trễ và cải thiện hiệu suất
+    url = "https://randomuser.me/api"
+    topic = "voting_sys_voters"
+    num_threads = 3 # Số luồng xử lý song song
+    requests_per_thread = 10 # Số request mỗi luồng thực hiện
+    def fetch_and_send():
+        """Gửi request đến API và gửi dữ liệu đến Kafka"""
+        try:
+            response = session.get(url, timeout=5)  # Dùng session để tối ưu
+            if response.status_code == 200:
+                data = response.text
+                future = producer.send(topic, data)
+                future.add_callback(on_send_success).add_errback(on_send_error)
+        except Exception as e:
+            print(f"Lỗi khi gửi request: {e}")
 
-        producer.send('voting_sys_voters', response)
-        producer.flush()
+    def on_send_success(record_metadata):
+        """Hàm callback khi gửi thành công"""
+        print(f"Gửi thành công: Topic={record_metadata.topic}, Partition={record_metadata.partition}, Offset={record_metadata.offset}")
+
+    def on_send_error(excp):
+        """Hàm callback khi gửi thất bại"""
+        print(f"Lỗi khi gửi Kafka: {excp}")  
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        while True:
+            if datetime.datetime.now() > dt_end:
+                break
+            futures = [executor.submit(fetch_and_send) for _ in range(requests_per_thread * num_threads)]
+            concurrent.futures.wait(futures)  # Đợi tất cả request xong trước khi tiếp tục
+            time.sleep(0.5)  # Nghỉ 0.5 giây trước khi gửi batch tiếp theo
 
 start_task = BashOperator(
     task_id = 'start_task',

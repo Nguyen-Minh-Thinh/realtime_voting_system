@@ -182,7 +182,7 @@ kafka_df = (
     spark
     .readStream
     .format("kafka")
-    .option("kafka.bootstrap.servers", "kafka:29092")
+    .option("kafka.bootstrap.servers", "kafka-1:29092")
     .option("subscribe", "voting_sys_voters")
     .option("startingOffsets", "earliest")
     .load())
@@ -194,7 +194,7 @@ df_transformed2 = df_transformed.filter(df_transformed.age > 18)
     df_transformed2
     .writeStream
     .foreachBatch(data_output)
-    .trigger(processingTime='10 seconds')
+    .trigger(processingTime='30 seconds')
     .option('checkpointLocation', 'checkpointLocation/checkpoint_dir_kafka')
     .start()
     .awaitTermination()
