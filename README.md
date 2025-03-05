@@ -14,13 +14,15 @@ The workflow is automated with Apache Airflow and deployed via Docker for scalab
 7. Docker: Container platform
 
 ## Architecture
+**Workflow**
 ![Architecture](image/workflow.png)
 
 **DAG Tasks**
 ![DAG Tasks](image/dag_tasks.png)
 
 ## Dashboard
-**Updating...**
+![Report 1](image/report1.png)
+![Report 2](image/report2.png)
 
 ## How to run the project?
 1. **Ensuring Docker is installed.**

@@ -6,11 +6,12 @@ from create_table import get_clickhouse_client
 import json 
 import datetime
 
+# Insert candidates
 def insert_candidates(client, no_rows):
     count = 0
     while count < no_rows:
         url = "https://randomuser.me/api"
-        response = requests.get(url + "?nat=us").text    # About 90 requests per minute
+        response = requests.get(url + "?nat=us").text    
         json_value = json.loads(response)
         data = json_value['results'][0]
         if data['dob']['age'] < 22:
@@ -23,18 +24,16 @@ def insert_candidates(client, no_rows):
         city = data['location']['city']
         state = data['location']['state']
         country = data['location']['country']
-        postcode = str(data['location']['postcode'])
         email = data['email']
         date_of_birth = str(datetime.datetime.strptime(data['dob']['date'], '%Y-%m-%dT%H:%M:%S.%fZ').date())
+        gender = data['gender']
         age = int(data['dob']['age'])
         phone_number = data['phone']
         picture_url = data['picture']['large']
         national_id = data['nat']
-        client.insert('voting_system.candidates', [(id, first_name, last_name, full_name, street, city, state, country, postcode, email, date_of_birth, age, phone_number, picture_url, national_id)])
+        client.insert('voting_system.candidates', [(id, first_name, last_name, full_name, date_of_birth, gender, age, email, phone_number, street, city, state, country, national_id, picture_url)])
         count += 1
         
-        
-
 if __name__ == '__main__':
     script_path = pathlib.Path(__file__).parent.resolve()
     config = dotenv_values(f'{script_path.parent.parent}/.env')
@@ -45,5 +44,3 @@ if __name__ == '__main__':
         insert_candidates(client, 3)
     elif no_rows < 3 and no_rows > 0:
         insert_candidates(client, 3- no_rows)
-
-    # print(type(results.result_rows))    # Return list type

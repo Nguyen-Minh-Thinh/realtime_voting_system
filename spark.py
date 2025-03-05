@@ -25,7 +25,7 @@ def get_candidates():
         candidates_lst.append(t[0])
     return candidates_lst
 
-# Hàm biến đổi dữ liệu từ Kafka
+# Transform data from Kafka
 def transform_data(df):
     json_schema = StructType([
         StructField('results', ArrayType(
@@ -101,6 +101,7 @@ def transform_data(df):
             col("results.login.uuid").alias("id"),
             col("results.name.first").alias("first_name"),
             col("results.name.last").alias("last_name"),
+            col("results.gender").alias("gender"),
             concat(col("results.name.first"), lit(" "), col("results.name.last")).alias("full_name"),
             col("results.email").alias("email"),
             col("results.dob.date").alias("date_of_birth"),
@@ -109,6 +110,7 @@ def transform_data(df):
             concat_ws(" ", col("results.location.street.name")).alias("street"),    # Allow to add separator when concatenate strings
             col("results.location.city").alias("city"),
             col("results.location.state").alias("state"),
+            col("results.nat").alias("national_id"),
             col("results.location.country").alias("country")
         )
     
@@ -166,14 +168,16 @@ voters_schema = StructType(
         StructField("first_name", StringType(), False),
         StructField("last_name", StringType(), False),
         StructField("full_name", StringType(), False),
-        StructField("email", StringType(), False),
         StructField("date_of_birth", StringType(), False),
+        StructField("gender", StringType(), False),
         StructField("age", IntegerType(), False),
+        StructField("email", StringType(), False),
         StructField("phone_number", StringType(), False),
         StructField("street", StringType(), False),
         StructField("city", StringType(), False),
         StructField("state", StringType(), False),
-        StructField("country", StringType(), False)
+        StructField("country", StringType(), False),
+        StructField("national_id", StringType(), False)
     ]
 )
 

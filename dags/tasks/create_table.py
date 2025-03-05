@@ -3,58 +3,62 @@ import clickhouse_connect
 from dotenv import dotenv_values
 import pathlib
 
+# Create table candidates
 def create_table_candidates(client):
     command = f'''
             CREATE TABLE IF NOT EXISTS {config['CLICKHOUSE_DATABASE']}.candidates
                     (
-                        id String NOT NULL, -- String thay vì VARCHAR
+                        id String NOT NULL, -- String type in ClickHouse instead of using VARCHAR
                         first_name String NOT NULL,
                         last_name String NOT NULL,
                         full_name String,
+                        date_of_birth String, 
+                        gender String,
+                        age Int32,          -- Int32 type in ClickHouse instead of using INT
+                        email String,
+                        phone_number String,
                         street String,
                         city String,
                         state String,
                         country String,
-                        postcode String,     -- 
-                        email String,
-                        date_of_birth String, -- Date32 has range year 1925 -> 2283 but it's not incompatible
-                        age Int32,          -- Sử dụng kiểu Int32 thay vì INT
-                        phone_number String,
-                        picture_url String, -- 
-                        national_id String  --
+                        national_id String,
+                        picture_url String
                     )
                     ENGINE = MergeTree()
                     PRIMARY KEY id
-                    ORDER BY id; -- Yêu cầu bắt buộc với MergeTree
+                    ORDER BY id; 
 
             '''
     client.command(command)
     print('Created table candidates successfully!')
 
+# Create table voters
 def create_table_voters(client):
     command = f'''
             CREATE TABLE IF NOT EXISTS {config['CLICKHOUSE_DATABASE']}.voters (
-                id String NOT NULL,           
-                first_name String NOT NULL,   
-                last_name String NOT NULL,    
-                full_name String,             
-                email String,                 
-                date_of_birth String,           
-                age Int32,                    
-                phone_number String,          
-                street String,                
-                city String,                  
-                state String,                 
-                country String                
+                id String NOT NULL, 
+                first_name String NOT NULL,
+                last_name String NOT NULL,
+                full_name String,
+                date_of_birth String, 
+                gender String,
+                age Int32,          
+                email String,
+                phone_number String,
+                street String,
+                city String,
+                state String,
+                country String,
+                national_id String          
             )
             ENGINE = MergeTree() 
             PRIMARY KEY id
-            ORDER BY id;                     -- Cần có ORDER BY khi sử dụng MergeTree
-
+            ORDER BY id;                   -- Must have Order by when using MergeTree
             '''
     client.command(command)
     print('Created table voters successfully!')
 
+# Create table votes
 def create_table_votes(client):
     command = f'''
             CREATE TABLE IF NOT EXISTS {config['CLICKHOUSE_DATABASE']}.votes (
@@ -80,6 +84,7 @@ def get_clickhouse_client(config):
     except Exception as e:
         print(f"Failed to connect to ClickHouse: {e}")
         raise
+    
 if __name__ == '__main__':
     script_path = pathlib.Path(__file__).parent.resolve()
     config = dotenv_values(f'{script_path.parent.parent}/.env')
@@ -89,8 +94,7 @@ if __name__ == '__main__':
     create_table_candidates(client)
     create_table_voters(client)
     create_table_votes(client)
-    # result = client.query('select * from audio_device_data_pipeline.headphones')
-    # print(result.result_rows)
+
     
 
     

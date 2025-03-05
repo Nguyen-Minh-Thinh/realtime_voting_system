@@ -16,6 +16,7 @@ dag = DAG(
     catchup=True  # Start executing from start_date to now
 )
 
+# Produce to Kafka
 def to_kafka():
     from kafka import KafkaProducer 
     import requests 
@@ -28,13 +29,13 @@ def to_kafka():
     )
 
     dt_end = datetime.datetime.now() + datetime.timedelta(seconds=600)   
-    session = requests.Session()    # Giúp tái sử dụng kết nối TCP, giúp giảm độ trễ và cải thiện hiệu suất
-    url = "https://randomuser.me/api"
+    session = requests.Session()    # Help reuse TCP connection, reduce delay and improve performance
+    url = "https://randomuser.me/api?nat=us"
     topic = "voting_sys_voters"
-    num_threads = 3 # Số luồng xử lý song song
-    requests_per_thread = 10 # Số request mỗi luồng thực hiện
+    num_threads = 3 
+    requests_per_thread = 10 
+    # Fetch data and send
     def fetch_and_send():
-        """Gửi request đến API và gửi dữ liệu đến Kafka"""
         try:
             response = session.get(url, timeout=5)  # Dùng session để tối ưu
             if response.status_code == 200:
@@ -45,11 +46,11 @@ def to_kafka():
             print(f"Lỗi khi gửi request: {e}")
 
     def on_send_success(record_metadata):
-        """Hàm callback khi gửi thành công"""
+        """callback function when sending is successful"""
         print(f"Gửi thành công: Topic={record_metadata.topic}, Partition={record_metadata.partition}, Offset={record_metadata.offset}")
 
     def on_send_error(excp):
-        """Hàm callback khi gửi thất bại"""
+        """callback function when sending fails"""
         print(f"Lỗi khi gửi Kafka: {excp}")  
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
         while True:
